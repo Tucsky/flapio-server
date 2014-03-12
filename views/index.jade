@@ -1,0 +1,16 @@
+doctype html
+html(lang="en")
+  head
+    title=cover.name
+    style
+      include css/style.css
+  body
+    table
+      tr
+        td
+          article
+            |#{cover.name} <br>
+            span NodeJS Server
+            footer
+              i ©
+              a(href=cover.author, title='Author') xzl
