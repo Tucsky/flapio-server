@@ -11,12 +11,13 @@
 		express = require('express');
 		mongoose = require('mongoose');
 		crypto = require('crypto');
+		config = require('./config').ext;
 
 	// Define global server properties
 
 		var properties = {
-			port: process.env.PORT || 8080,
-			host: process.env.HOST || 'localhost',
+			port: process.env.PORT || config.PORT || 8080,
+			host: process.env.HOST || config.HOST || 'localhost',
 
 			html_var: {
 				cover: {
@@ -25,7 +26,7 @@
 				}
 			},
 
-			mongouri: 'mongodb://admin:mo457188568299@oceanic.mongohq.com:10000/app22963409'
+			mongouri: process.env.MONGOURI || config.MONGOURI || null
 		}
 
 	// Create express interface
