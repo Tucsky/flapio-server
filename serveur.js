@@ -26,7 +26,7 @@
 				}
 			},
 
-			mongouri: process.env.MONGOURI || config.MONGOURI || null
+			mongouri: process.env.MONGOHQ_URL || config.MONGOURI || null
 		}
 
 	// Create express interface
