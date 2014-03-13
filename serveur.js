@@ -284,6 +284,7 @@
 
 				// Récupération/Création du client
 				var Bird = new that.Client({id: uid, io: socket});
+				console.log('LOGIN '+Bird.nickname);
 
 				// Incrementation du counter
 				++that.COUNT;
@@ -330,6 +331,7 @@
 					--that.COUNT;
 
 					Bird.online = false;
+					console.log('LOGOUT '+Bird.nickname);
 
 					socket.broadcast.emit('lead', {id: Bird.id, count: that.COUNT});
 
