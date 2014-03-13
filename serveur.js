@@ -341,11 +341,9 @@
 
 					socket.broadcast.emit('lead', {id: Bird.id, count: that.COUNT});
 
-				});
-
 				}).on('lead', function () {
 					if (Bird.online == false) return;
-					
+
 					--that.COUNT;
 
 					Bird.online = false;
