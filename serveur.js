@@ -114,6 +114,7 @@
 			Client.id = input.id || rdstr(10);
 			Client.nickname = input.nickname || 'guest_'+parseInt(rdnb(0, 1000));
 			Client.jumps = input.jumps || [];
+			Client.guest = input.guest || false;
 			Client.online = true;
 			Client.scored = false;
 			Client.best = 0;
@@ -276,6 +277,7 @@
 
 					// Le joueur n'a pas transféré de token PHP, génération d'un identifiant de joueur unique et éphémère.
 					data.session = rdstr(14);
+					data.guest = true;
 					while (that.BIRDS[data.session]) data.session = rdstr(14);
 					callback(null, true);
 
@@ -288,7 +290,7 @@
 				var uid = that.secr.encrypt(socket.handshake.session).substr(0, 16);
 
 				// Récupération/Création du client
-				var Bird = new that.Client({id: uid, io: socket});
+				var Bird = new that.Client({id: uid, io: socket, guest: (socket.handshake.guest || false)});
 				console.log('LOGIN '+Bird.nickname);
 
 				// Incrementation du counter
@@ -439,6 +441,7 @@
 				nickname: typeof socket.nickname != 'undefined' ? socket.nickname : null,
 				jumps: typeof socket.jumps != 'undefined' ? socket.jumps : null,
 				online: typeof socket.online != 'undefined' ? socket.online : null,
+				guest: socket.guest || false,
 			};
 			return safe;
 		}
