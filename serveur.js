@@ -257,6 +257,11 @@
 		}
 
 		that.listen = function() {
+			io.configure(function () { 
+				io.set("transports", ["xhr-polling"]); 
+				io.set("polling duration", 10); 
+			});
+			
 			io.set('authorization', function (data, callback) {
 				var token = data.query.token ? that.secr.encrypt(data.query.token).substr(0, 16) : null;
 
