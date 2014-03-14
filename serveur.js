@@ -29,8 +29,8 @@
 			mongouri: process.env.MONGOHQ_URL || config.MONGOURI || null
 		},
 
-		beta = (properties.host == '0.0.0.0' || properties.host == 'localhost');
-		console.log(properties.host);
+		beta = typeof process.env.MONGOHQ_URL === 'undefined';
+
 	// Create express interface
 
 		var app = express();
