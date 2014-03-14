@@ -197,7 +197,6 @@
 
 			Client.reset = function() {
 				if (Client._.alive) return false;
-				console.log('reset');
 				Client._ = {
 					x: 100,
 					y: 200,
