@@ -417,10 +417,10 @@
 			down: function(callback) {
 				that.DB.SCORES.find().sort({"score":-1}).limit(16).exec(function(err, scores) {
 					if (err) throw err;
-					/*scores.forEach(function(score, i) {
+					scores.forEach(function(score, i) {
 						i == 0 && (that.BEST = score.score);
 						that.SCORES[score._id] = {score: score.score, nickname: score.nickname};
-					});*/
+					});
 
 					if (typeof callback === 'function') callback();
 				});
