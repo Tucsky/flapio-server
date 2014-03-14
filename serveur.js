@@ -30,7 +30,7 @@
 		},
 
 		beta = (properties.host == '0.0.0.0' || properties.host == 'localhost');
-
+		console.log(properties.host);
 	// Create express interface
 
 		var app = express();
