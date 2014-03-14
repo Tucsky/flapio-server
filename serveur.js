@@ -62,7 +62,7 @@
 	function Game() {
 		var that = this;
 
-		that.VERSION = "0.21";
+		that.VERSION = "0.22";
 
 		that.BIRDS = {};
 		that.COUNT = 0;
@@ -70,9 +70,9 @@
 		that.PIPES = [];
 		that.BEST = 0;
 		that.REWARDS = {
-			gold: null,
-			silver: null,
-			bronze: null
+			1: {id: null, score: 0},
+			2: {id: null, score: 0},
+			3: {id: null, score: 0}
 		};
 
 		that.SCORES = {};
@@ -118,6 +118,7 @@
 			Client.online = true;
 			Client.scored = false;
 			Client.best = 0;
+			Client.rank = null;
 			Client.reward = null;
 
 			Client._ = {
@@ -175,7 +176,7 @@
 				Client.io.broadcast.emit('jump', {id: Client.id, jumps: jumps, score: Client._.s});
 
 				// Reward
-				if (Client._.s == that.BEST) Client.reward('gold');
+				Client.reward(Client._.s);
 			}
 
 			Client.gameOver = function(data) {
@@ -195,6 +196,9 @@
 
 				// Sauvegarde serveur
 				that.BEST = Math.max(Client.best, that.BEST);
+
+				// Reward
+				Client.reward(Client._.s);
 
 				// Envoi du score aux autres joueurs
 				io.sockets.emit('score', {id: Client.id, score: Client._.s, best: that.BEST});
@@ -223,17 +227,24 @@
 				io.sockets.emit('nickname', {id: Client.id, nickname: Client.nickname});
 			}
 
-			Client.reward = function(id) {
-				if (that.REWARDS[id] == Client.id) return;
-				var rotate = {id: Client.id};
+			Client.reward = function(score) {
+				var rank = (score > that.REWARDS[1].score ? 1 : (score > that.REWARDS[2].score ? 2 : (score > that.REWARDS[3].score ? 3 : null)));
 
+				if (!rank || (Client.rank && Client.rank < rank) || (that.REWARDS[rank].id == Client.id && that.REWARDS[rank].score >= score)) return;
+				var rotate = {id: Client.id, score: score};
+				var found = false;
+				if (that.REWARDS[3].id) that.BIRDS[that.REWARDS[3].id].rank = null;
 				for (var i in that.REWARDS) {
-					var id = that.REWARDS[i] || null;
+					if (i == rank || found) found = true; else continue;
+
+					var id = that.REWARDS[i].id || null,
+						score = that.REWARDS[i].score || 0;
 						id == Client.id && (id = null);
 
-					if (rotate.id) that.REWARDS[i] = rotate.id;
-					rotate.id = id;
+					if (rotate.id) that.REWARDS[i] = {id: rotate.id, score: rotate.score}, that.BIRDS[rotate.id] && (that.BIRDS[rotate.id].rank = parseInt(i)),
+					rotate = {id: id, score: score};
 				}
+				console.log(that.REWARDS);
 
 				io.sockets.emit('reward', {rewards: that.REWARDS});
 			}
@@ -398,6 +409,7 @@
 
 		that.sync = {
 			up: function(id, score, nickname) {
+					console.log('up', score);
 				that.DB.SCORES.update({ _id: id }, { score: score, nickname: nickname }, {upsert: true}, function(err) {
 					if (err) throw err;
 				});
@@ -405,10 +417,10 @@
 			down: function(callback) {
 				that.DB.SCORES.find().sort({"score":-1}).limit(16).exec(function(err, scores) {
 					if (err) throw err;
-					scores.forEach(function(score, i) {
+					/*scores.forEach(function(score, i) {
 						i == 0 && (that.BEST = score.score);
 						that.SCORES[score._id] = {score: score.score, nickname: score.nickname};
-					});
+					});*/
 
 					if (typeof callback === 'function') callback();
 				});
@@ -442,6 +454,7 @@
 				jumps: typeof socket.jumps != 'undefined' ? socket.jumps : null,
 				online: typeof socket.online != 'undefined' ? socket.online : null,
 				guest: socket.guest || false,
+				rank: socket.rank || null,
 			};
 			return safe;
 		}
@@ -455,17 +468,6 @@
 			}
 
 		return output;
-	}
-
-	function validate(jumps) {
-		var x = 100,
-			y = 200;
-			
-		jumps.forEach(function(jump) {
-			for (var ax=1; ax<=1; ax+=2) {
-
-			}
-		})
 	}
 
 	function rdstr(l,c) {
