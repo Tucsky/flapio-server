@@ -74,6 +74,7 @@
 			2: {id: null, score: 0},
 			3: {id: null, score: 0}
 		};
+		that.REWARDSID = null;
 
 		that.SCORES = {};
 		that.MIN = 0;
@@ -88,7 +89,22 @@
 				_id : String,
 				nickname: String,
 				score: Number,
-			})
+			}),
+			REWARDS: mongoose.model('rewards', {
+				_id : String,
+				1: {
+					id: String,
+					score: Number
+				},
+				2: {
+					id: String,
+					score: Number
+				},
+				3: {
+					id: String,
+					score: Number
+				}
+			}),
 		};
 
 		that.init = function() {
@@ -198,7 +214,7 @@
 				that.BEST = Math.max(Client.best, that.BEST);
 
 				// Reward
-				Client.reward(Client._.s);
+				Client.reward(Client._.s, true);
 
 				// Envoi du score aux autres joueurs
 				io.sockets.emit('score', {id: Client.id, score: Client._.s, best: that.BEST});
@@ -227,7 +243,7 @@
 				io.sockets.emit('nickname', {id: Client.id, nickname: Client.nickname});
 			}
 
-			Client.reward = function(score) {
+			Client.reward = function(score, sync) {
 				var rank = (score > that.REWARDS[1].score ? 1 : (score > that.REWARDS[2].score ? 2 : (score > that.REWARDS[3].score ? 3 : null)));
 
 				if (!rank || (Client.rank && Client.rank < rank) || (that.REWARDS[rank].id == Client.id && that.REWARDS[rank].score >= score)) return;
@@ -244,9 +260,10 @@
 					if (rotate.id) that.REWARDS[i] = {id: rotate.id, score: rotate.score}, that.BIRDS[rotate.id] && (that.BIRDS[rotate.id].rank = parseInt(i)),
 					rotate = {id: id, score: score};
 				}
-				console.log(that.REWARDS);
 
 				io.sockets.emit('reward', {rewards: that.REWARDS});
+
+				if (sync) that.sync.up.reward();
 			}
 
 			Client.log = function() {
@@ -282,7 +299,6 @@
 					// Le joueur a transmit son token PHP, il peut récupérer son compte
 					data.session = data.query.token;
 					callback(null, true);
-					console.log(token);
 
 				} else {
 
@@ -302,7 +318,6 @@
 
 				// Récupération/Création du client
 				var Bird = new that.Client({id: uid, io: socket, guest: (socket.handshake.guest || false)});
-				console.log('LOGIN '+Bird.nickname);
 
 				// Incrementation du counter
 				++that.COUNT;
@@ -350,7 +365,6 @@
 					--that.COUNT;
 
 					Bird.online = false;
-					console.log('LOGOUT '+Bird.nickname);
 
 					socket.broadcast.emit('lead', {id: Bird.id, count: that.COUNT});
 
@@ -360,7 +374,6 @@
 					--that.COUNT;
 
 					Bird.online = false;
-					console.log('LOGOUT '+Bird.nickname);
 
 					socket.broadcast.emit('lead', {id: Bird.id, count: that.COUNT});
 
@@ -394,7 +407,7 @@
 		}
 
 		that.sortTop = function(id, score, nickname) {
-			id && score && (that.SCORES[id] = {score: Math.max(((that.SCORES[id] && that.SCORES[id].score) || 0), score), nickname: nickname}) && that.sync.up(id, score, nickname);
+			id && score && (that.SCORES[id] = {score: Math.max(((that.SCORES[id] && that.SCORES[id].score) || 0), score), nickname: nickname}) && that.sync.up.score(id, score, nickname);
 
 			var object = that.SCORES;
 			var array = Object.keys(that.SCORES).sort(function(a, b) {return -(that.SCORES[a].score - that.SCORES[b].score)});
@@ -408,13 +421,23 @@
 		}
 
 		that.sync = {
-			up: function(id, score, nickname) {
-					console.log('up', score);
-				that.DB.SCORES.update({ _id: id }, { score: score, nickname: nickname }, {upsert: true}, function(err) {
-					if (err) throw err;
-				});
-			}, 
+			up: {
+				score: function(id, score, nickname) {
+					that.DB.SCORES.update({ _id: id }, { score: score, nickname: nickname }, {upsert: true}, function(err) {
+						if (err) throw err;
+					});
+				}, 
+				reward: function() {
+					that.DB.REWARDS.update({ _id: that.REWARDSID }, that.REWARDS, {upsert: true}, function(err) {
+						if (err) throw err;
+					});
+				}
+			},
 			down: function(callback) {
+				that.DB.REWARDS.findOne().exec(function(err, rewards) {
+					if (err) throw err;
+					if (rewards) that.REWARDS = {1: rewards[1], 2: rewards[2], 3: rewards[3]}, that.REWARDSID = rewards._id;
+				});
 				that.DB.SCORES.find().sort({"score":-1}).limit(16).exec(function(err, scores) {
 					if (err) throw err;
 					scores.forEach(function(score, i) {
