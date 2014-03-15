@@ -121,6 +121,7 @@
 			Client._ = {
 				x: 100,
 				y: 200,
+				j: 0,
 				s: 0,
 				alive: true,
 			};
@@ -161,6 +162,7 @@
 					// Somme après frames
 					Client._.x += (JUMP - LAST_JUMP);
 					Client._.y = +(Client._.y + ( - 8 + ((0.38 * ((JUMP - LAST_JUMP) / 2 + 1)) /2)) * ((JUMP - LAST_JUMP) / 2)).toFixed(2);
+					Client._.j = JUMP;
 				
 					// Nouvelle target
 					if (Client._.x > that.LEVEL[Client._.s].x + 64) Client._.s++;
@@ -437,6 +439,7 @@
 				online: typeof socket.online != 'undefined' ? socket.online : null,
 				guest: socket.guest || false,
 				rank: socket.rank || null,
+				_: socket._.alive ? socket._ : null,
 			};
 			return safe;
 		}
