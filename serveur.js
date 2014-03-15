@@ -27,9 +27,13 @@
 			},
 
 			mongouri: process.env.MONGOHQ_URL || config.MONGOURI || null
+<<<<<<< HEAD
 		},
 
 		beta = typeof process.env.MONGOHQ_URL === 'undefined';
+=======
+		}
+>>>>>>> efcf5bd4d57ae4b48704b0b96b736fdfa46d532e
 
 	// Create express interface
 
