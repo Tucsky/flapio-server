@@ -331,7 +331,7 @@
 			});
 
 			server.listen(properties.port, properties.host, null, function() {
-				console.log('Server v'+that.VERSION+' listening on port %d in %s mode', this.address().port, app.settings.env);
+				console.log('Server v'+that.VERSION+' listening on port %d in %s mode', properties.port, app.settings.env);
 			});
 		}
 
