@@ -268,7 +268,7 @@
 
 				// Encryption de l'id, ainsi l'utilisateur
 				var uid = that.secr.encrypt(socket.handshake.session).substr(0, 16);
-				var ip = address.address + ":" + address.port;
+				var ip = socket.handshake.address.address + ":" + socket.handshake.address.port;
 
 				// Récupération/Création du client
 				var Bird = new that.Client({id: uid, io: socket, guest: (socket.handshake.guest || false), ip: ip});
