@@ -110,6 +110,7 @@
 
 			Client.io = input.io;
 			Client.id = input.id || rdstr(10);
+			Client.ip = input.ip || 'unknown';
 			Client.nickname = input.nickname || 'bird_'+parseInt(rdnb(0, 10000));
 			Client.jumps = input.jumps || [];
 			Client.guest = input.guest || false;
@@ -194,7 +195,7 @@
 				io.sockets.emit('score', {id: Client.id, score: Client._.s, best: that.BEST});
 
 				// Regenerate Score Object
-				that.setRank(Client.id, Client._.s, Client.nickname);
+				that.setRank(Client.id, Client._.s, Client.nickname, Client.ip);
 			}
 
 			Client.reset = function() {
@@ -267,9 +268,10 @@
 
 				// Encryption de l'id, ainsi l'utilisateur
 				var uid = that.secr.encrypt(socket.handshake.session).substr(0, 16);
+				var ip = address.address + ":" + address.port;
 
 				// Récupération/Création du client
-				var Bird = new that.Client({id: uid, io: socket, guest: (socket.handshake.guest || false)});
+				var Bird = new that.Client({id: uid, io: socket, guest: (socket.handshake.guest || false), ip: ip});
 
 				// Incrementation du counter
 				++that.COUNT;
@@ -357,11 +359,11 @@
 			return out;
 		}
 
-		that.setRank = function(id, score, nickname) {
+		that.setRank = function(id, score, nickname, ip) {
 			if (!id || !score || (that.COUNT_SCORE >= 16 && that.MINIMUM_SCORE > score)) return;
 
 			// Upsert score by ID (local)
-			that.SCORES[id] = {score: Math.max(((that.SCORES[id] && that.SCORES[id].score) || 0), score), nickname: nickname};
+			that.SCORES[id] = {score: Math.max(((that.SCORES[id] && that.SCORES[id].score) || 0), score), nickname: nickname, ip: ip};
 
 			// Upsert server score by ID
 			that.sync.up.scores(id, that.SCORES[id]);
