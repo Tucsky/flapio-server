@@ -85,6 +85,7 @@
 				_id : String,
 				nickname: String,
 				score: Number,
+				ip: String,
 			})
 		};
 
