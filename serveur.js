@@ -21,7 +21,7 @@
 
 			html_var: {
 				cover: {
-					name: 'Flap.IO',
+					name: 'Flappy Tournament',
 					author: 'http://www.xzl.fr'
 				}
 			},
