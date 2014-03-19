@@ -93,7 +93,7 @@
 			that.sync.down.scores(function() {
 
 				that.LEVEL = that.setLevel();
-				that.MESSAGE = 'Flap.IO Version '+that.VERSION;
+				that.MESSAGE = 'FlappyTournament v'+that.VERSION;
 				that.listen();
 
 			});
