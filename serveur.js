@@ -382,7 +382,7 @@
 			}
 
 			Client.getGhost = function(id) {
-				that.DB.SCORES.findOne({_id: id}).exec(function(err, ghost) {
+				that.DB.DAILY.findOne({_id: id}).exec(function(err, ghost) {
 					Client.io.emit('ghost', ghost);
 				});
 			}
