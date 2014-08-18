@@ -101,40 +101,84 @@
 		that.BEST = 0;
 
 		that.SCORES = [];
+		that.REWARDS = [];
 
 		that.MAX_LEVEL = 200;
 		that.NPL = 2;
+		that.ROUND = 0;
 
 		that.DB = {
-			SCORES: mongoose.model((beta ? 'scores_beta' : 'scores'), {
+			SCORES: mongoose.model('scores', {
 				_id : String,
 				nickname: String,
 				score: Number,
 				timestamp: Number,
 				jumps: String,
-				seed: Number
+				seed: Number,
+				ip: String
+			}),
+			DAILY: mongoose.model('tournament', {
+				_id: String,
+				client: String, 
+				nickname: String,
+				score: Number,
+				timestamp: Number,
+				jumps: String,
+				seed: Number,
+				ip: String
 			})
 		};
 
 		that.init = function() {
-			that.DB.SCORES.find({}, {jumps:0}).sort({"score":-1}).exec(function(err, scores) {
+			that.DB.SCORES.find({}, {jumps:0}).sort({"score":-1}).exec(function(err, scoresALL) {
+				that.DB.DAILY.find({timestamp: {$gt: new Date().setHours(0, 0, 0)}}, {jumps:0}).sort({"score":-1, "timestamp":-1}).exec(function(err, scoresTODAY) {
 
-				if (err) console.log('Unable to recover the scores');
+					// Update server best
+					scoresALL.length && (that.BEST = scoresALL[0].score);
 
-				// Update server best
-				scores.length && (that.BEST = scores[0].score);
+					// Update Scores Array
+					that.SCORES = scoresALL;
 
-				// Update Scores Array
-				that.SCORES = scores;
+					// Update rewards
+					for (var i = 0; i < 3; i++) scoresTODAY[i] && (that.REWARDS[i] = {id: scoresTODAY[i].client, score: scoresTODAY[i].score});
+					
+					// Callback
+					that.LEVEL = that.setLevel();
+					that.MESSAGE = 'FlapIO '+that.VERSION;
+					that.listen();
 
-				// Callback
-				that.LEVEL = that.setLevel();
-				that.MESSAGE = 'FlapIO '+that.VERSION;
-				that.listen();
+					// Start rounds
+					var d = new Date();
+					that.ROUND = d.setMinutes(d.getMinutes() + 30);
+					setInterval(function() {
+						if (+new Date() > that.ROUND) {
+							var d = new Date();
+							that.ROUND = d.setMinutes(d.getMinutes() + 30);
+							that.SEED = parseInt(rdnb(1,1000000000));
+							that.setLevel();
+							io.sockets.emit('round', {round: that.ROUND, seed: that.SEED});
+						}
+					}, 1000);
 
+					// Start day cron
+					that.resetDay();
+
+				});
 			});
 
 			return that;
+		}
+
+		that.resetDay = function() {
+			var d = new Date();
+				d.setDate(d.getDate()+1);
+			var o = d.setHours(0, 0, 0) - +new Date();
+			setTimeout(function() {
+				console.log('\033[32mRESET DAY!');
+				that.REWARDS = [];
+				that.resetDay();
+			}, o);
+			console.log('\033[32mSTART CRON ('+o+' ms)');
 		}
 
 		that.getScore = function(id, data) {
@@ -173,6 +217,7 @@
 			Client.scored = false;
 			Client.best = input.best || 0;
 			Client.rank = null;
+			Client.ip = input.ip || null;
 
 			Client._ = {
 				x: 100,
@@ -181,6 +226,26 @@
 				s: 0,
 				alive: true,
 			};
+
+			Client.getReward = function(score) {
+				var temp = null;
+				var hist = [];
+				for (var i = 0; i < 3; i++) {
+					if (!temp && !hist[Client.id] && (!that.REWARDS[i] || that.REWARDS[i].score <= score)) {
+						temp = that.REWARDS[i];
+						that.REWARDS[i] = {id: Client.id, score: score};
+					} else if (temp) {
+						if (temp.id == Client.id) continue;
+						var temptemp = that.REWARDS[i];
+						that.REWARDS[i] = temp;
+						temp = temptemp;
+					} else {
+						that.REWARDS[i] && (hist[that.REWARDS[i].id] = true);
+					}
+				}
+
+				return that.REWARDS;
+			}
 
 			Client.jump = function(jumps) {
 				if ((jumps && !jumps.length) || !jumps) return false;
@@ -250,29 +315,47 @@
 				that.BEST = Math.max(Client.best, that.BEST);
 
 				// Envoi du score aux autres joueurs
-				io.sockets.emit('score', {id: Client.id, score: Client._.s, best: that.BEST});
+				io.sockets.emit('score', {id: Client.id, score: Client._.s, best: that.BEST, rewards: Client.getReward(Client._.s)});
 
 				// Regenerate Score Object
 				if (Client._.s) {
-					that.DB.SCORES.count({score: {$gt:Client._.s}}, function(err, count) {
-						console.log(err, count);
-						if (!err) 
-							Client.io.emit('rank', {id: Client.id, rank: count + 1});
+
+					that.DB.SCORES.count({score: {$gt:Client._.s}}, function(err, alltime) {
+						if (err) 
+							Client.io.emit('message', 'Database error');
+						else
+							that.DB.DAILY.count({score: {$gt:Client._.s}, timestamp: {$gt: new Date().setHours(0, 0, 0)}}, function(err, daily) {
+								if (err) 
+									Client.io.emit('message', 'Database error');
+								else {
+									Client.io.emit('rank', {id: Client.id, rank: {alltime: alltime + 1, daily: daily + 1}});
+								}
+							});
 					});
 
-					if (that.getScore(Client.id).score > Client._.s) return;
-
-					that.getScore(Client.id, {_id: Client.id, nickname: Client.nickname, score: Client._.s});
-
-					that.DB.SCORES.update({ _id: Client.id}, {
+					var upsert = {
 						nickname: Client.nickname, 
 						score: Client._.s, 
 						timestamp: +new Date(), 
 						jumps: Client.jumps, 
-						seed: that.SEED
-					}, {upsert: true}, function(err, res) {
+						seed: that.SEED,
+						ip: Client.ip
+					}
+
+					that.DB.DAILY.findOne({client: Client.id, timestamp: {$gt: new Date().setHours(0, 0, 0)}}).exec(function(err, player) {
 						if (err) 
-							console.log('Unable to upsert the selected score',err); 
+							Client.io.emit('message', 'Database error');
+						if (!player || Client._.s >= player.score)
+							that.DB.DAILY.update({ client: Client.id, timestamp: {$gt: new Date().setHours(0, 0, 0)}}, upsert, {upsert: true}, function(err, res) {});
+					});
+
+					if (that.getScore(Client.id).score >= Client._.s) return;
+
+					that.getScore(Client.id, {_id: Client.id, nickname: Client.nickname, score: Client._.s });
+					
+					that.DB.SCORES.update({ _id: Client.id}, upsert, {upsert: true}, function(err, res) {
+						if (err) 
+							Client.io.emit('message', 'Database error');
 						else
 							extend(that.getClient(Client.id), {nickname: Client.nickname, score: Client._.s});
 					});
@@ -300,8 +383,6 @@
 
 			Client.getGhost = function(id) {
 				that.DB.SCORES.findOne({_id: id}).exec(function(err, ghost) {
-					if (err) console.log('Unable to find this ghost',err);
-
 					Client.io.emit('ghost', ghost);
 				});
 			}
@@ -311,41 +392,41 @@
 					sort = {},
 					by = data.by || -1,
 					nickname = data.nickname ? new RegExp(data.nickname, 'i') : null,
-					period = data.period || 'd',
+					collection = data.collection || 'd',
+					daily = data.daily || 0;
 					current = new Date(),
 					search = {};
 
-					sort[data.order || 'score'] = data.by || -1;
+					current.setDate(current.getDate() + daily);
 
-				switch (period) {
+					sort[data.order || 'score'] = data.by || -1;
+					sort.score == -1 && (sort.timestamp = -1);
+
+				switch (collection) {
 					case 'd':
-						period = current.setHours(0, 0, 0);
-						break;
-					case 'w':
-						period = current.setDate(current.getDate() - 7);
-						period = current.setHours(0, 0, 0);
+						collection = 'DAILY';
+						search.timestamp = {$gt: current.setHours(0, 0, 0), $lt: current.setHours(23, 59, 59)};
 						break;
 					case 'a':
-						period = 0
+						collection = 'SCORES';
 						break;
 				}
 
-				if (period) search.timestamp = {$gt:period};
 				if (nickname) search.nickname = nickname;
 
-				that.DB.SCORES.count(search, function(err, count){
+				that.DB[collection].count(search, function(err, count){
 					if (page > Math.floor(count/25))
-						return Client.io.emit('message', {options: {class: 'warning'}, text: 'You reached the end!'});
+						return Client.io.emit('message', {options: {class: 'warning'}, text: 'No more high scores'});
 
-					that.DB.SCORES.find(search, {jumps:0}).sort(sort).skip(25*page).limit(25).exec(function(err, scores) {
-						if (err) console.log('Unable to the scores for page '+page+' (count:'+count+', pages:'+(count/25)+')',err);
+					that.DB[collection].find(search, {jumps:0}).sort(sort).skip(25*page).limit(25).exec(function(err, scores) {
+						if (err) return Client.io.emit('message', {options: {class: 'warning'}, text: 'Database error'});
 						Client.io.emit('leaderboard', {scores: scores, count: count});
 					});
 				})
 			}
 
 			Client.log = function() {
-				Client.io.emit('log', {BIRDS: safe(that.BIRDS), REWARDS: that.REWARDS, LEVEL: that.LEVEL, COUNT: io.sockets.clients().length, SCORES: that.SCORES});
+				Client.io.emit('log', {TIME: +new Date(), BIRDS: safe(that.BIRDS), REWARDS: that.REWARDS, LEVEL: that.LEVEL, COUNT: io.sockets.clients().length, SCORES: that.SCORES});
 			}
 
 			that.BIRDS.push(Client);
@@ -363,6 +444,8 @@
 
 			io.set('authorization', function (data, callback) {
 				var token = data.query.token ? encrypt(data.query.token).substr(0, 16) : null;
+
+				data.remoteAdrr = data.address.address+':'+data.address.port;
 
 				if (data && data.query && token && !(that.getClient(token) && that.getClient(token).online)) {
 
@@ -383,11 +466,15 @@
 
 			io.on('connection', function (socket) {
 
+				// IP
+				var ip = socket.handshake.remoteAdrr;
+				console.log('\x1b[35m'+ip+' CONNECT');
+
 				// Encryption de l'id, ainsi l'utilisateur
 				var uid = encrypt(socket.handshake.session).substr(0, 16);
 
 				// Récupération/Création du client
-				var Bird = new that.Client({id: uid, io: socket, guest: (socket.handshake.guest || false)});
+				var Bird = new that.Client({id: uid, io: socket, guest: (socket.handshake.guest || false), ip: ip});
 
 				// Incrementation du counter
 				var count = io.sockets.clients().length;
@@ -400,11 +487,14 @@
 					count: count,
 					message: that.MESSAGE,
 					best: that.BEST,
-					pages: Math.floor(that.SCORES.length / 25)
+					guest: Bird.guest,
+					pages: Math.floor(that.SCORES.length / 25),
+					round: that.ROUND - +new Date(),
+					rewards: that.REWARDS
 				});
 
 				// Transmission des données aux autres clients
-				socket.broadcast.emit('new', {id: Bird.id, nickname: Bird.nickname, count: count});
+				socket.broadcast.emit('new', {id: Bird.id, nickname: Bird.nickname, count: count, rewards: that.REWARDS});
 
 				// Commandes declenchés par l'utilisateur
 				socket.on('user_command', function(data) {
@@ -439,7 +529,7 @@
 
 					Bird.online = false;
 
-					socket.broadcast.emit('lead', {id: Bird.id, count: io.sockets.clients().length});
+					socket.broadcast.emit('lead', {id: Bird.id, count: io.sockets.clients().length - 1});
 
 				}).on('lead', function () {
 					if (Bird.online == false) return;
@@ -494,7 +584,6 @@
 				nickname: typeof socket.nickname != 'undefined' ? socket.nickname : null,
 				online: typeof socket.online != 'undefined' ? socket.online : null,
 				guest: socket.guest || false,
-				rank: socket.rank || null,
 				_: socket._.alive ? socket._ : null,
 			};
 			return safe;
