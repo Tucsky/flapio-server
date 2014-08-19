@@ -12,6 +12,7 @@
 		mongoose = require('mongoose'),
 		crypto = require('crypto'),
 		extend = require('node.extend');
+		ObjectId = mongoose.Types.ObjectId;
 
 	// Local configs
 
