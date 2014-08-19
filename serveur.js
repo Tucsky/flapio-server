@@ -12,7 +12,7 @@
 		mongoose = require('mongoose'),
 		crypto = require('crypto'),
 		extend = require('node.extend');
-		ObjectId = mongoose.Types.ObjectId;
+		ObjectId = mongoose.Schema.ObjectId;
 
 	// Local configs
 
@@ -56,7 +56,7 @@
 	// Init mongo DB
 
 		function db(reconnect) {
-			console.log('\033[32mMongoose: Connecting ('+(beta ? 'Beta' : 'Default')+')');
+			G && G.console('Mongoose: Connecting ('+(beta ? 'Beta' : 'Default')+')');
 			if (reconnect) 
 				properties.mongotry++,
 				mongoose.disconnect();
@@ -69,20 +69,20 @@
 		db();
 
 		mongoose.connection.on('connected', function () {
-			console.log('\033[32mMongoose: Connected ('+(beta ? 'Beta' : 'Default')+')');
+			G && G.console('Mongoose: Connected ('+(beta ? 'Beta' : 'Default')+')');
 			clearTimeout(properties.mongodelay);
 			properties.mongotry = 0;
 		});
 
 		// If the connection throws an error
 		mongoose.connection.on('error',function (err) {
-			console.log('\033[32mMongoose: Connection error ('+(beta ? 'Beta' : 'Default')+') '+err);
+			G && G.console('Mongoose: Connection error ('+(beta ? 'Beta' : 'Default')+') '+err);
 			db(true);
 		});
 
 		// When the connection is disconnected
 		mongoose.connection.on('disconnected', function () {
-			console.log('\033[32mMongoose: Disconnected ('+(beta ? 'Beta' : 'Default')+')');
+			G && G.console('Mongoose: Disconnected ('+(beta ? 'Beta' : 'Default')+')');
 		});
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -99,10 +99,13 @@
 		that.BIRDS = [];
 		that.SEED = parseInt(rdnb(1,1000000000));
 		that.LEVEL = [];
+		that.DEBUGLEVEL = [];
 		that.BEST = 0;
 
 		that.SCORES = [];
 		that.REWARDS = [];
+		that.ADMINS = [];
+		that.CONSOLE = [];
 
 		that.MAX_LEVEL = 200;
 		that.NPL = 2;
@@ -116,10 +119,11 @@
 				timestamp: Number,
 				jumps: String,
 				seed: Number,
-				ip: String
+				ip: String,
+				admin: Boolean
 			}),
 			DAILY: mongoose.model('tournament', {
-				_id: String,
+				_id: ObjectId,
 				client: String, 
 				nickname: String,
 				score: Number,
@@ -152,13 +156,7 @@
 					var d = new Date();
 					that.ROUND = d.setMinutes(d.getMinutes() + 30);
 					setInterval(function() {
-						if (+new Date() > that.ROUND) {
-							var d = new Date();
-							that.ROUND = d.setMinutes(d.getMinutes() + 30);
-							that.SEED = parseInt(rdnb(1,1000000000));
-							that.setLevel();
-							io.sockets.emit('round', {round: that.ROUND, seed: that.SEED});
-						}
+						if (+new Date() > that.ROUND) that.resetRound();
 					}, 1000);
 
 					// Start day cron
@@ -170,16 +168,24 @@
 			return that;
 		}
 
+		that.resetRound = function() {
+			var d = new Date();
+			that.ROUND = d.setMinutes(d.getMinutes() + 30);
+			that.SEED = parseInt(rdnb(1,1000000000));
+			that.LEVEL = that.setLevel();
+			io.sockets.emit('round', {round: that.ROUND, seed: that.SEED});
+		}
+
 		that.resetDay = function() {
 			var d = new Date();
 				d.setDate(d.getDate()+1);
 			var o = d.setHours(0, 0, 0) - +new Date();
 			setTimeout(function() {
-				console.log('\033[32mRESET DAY!');
+				that.console('RESET DAY');
 				that.REWARDS = [];
 				that.resetDay();
 			}, o);
-			console.log('\033[32mSTART CRON ('+o+' ms)');
+			that.console('START CRON ('+o+' ms)');
 		}
 
 		that.getScore = function(id, data) {
@@ -196,6 +202,25 @@
 			return;
 		}
 
+		that.console = function() {
+			var args = Array.prototype.slice.call(arguments);
+
+			// Include datetime
+			var dt = +new Date();
+
+			// Admin console (ingame)
+			for (var i = 0; i < that.ADMINS.length; i++) {
+				var cli = that.getClient(that.ADMINS[i]);
+				if (cli && cli.online) cli.io.emit('console', [dt].concat(args));
+			}
+
+			// Save arguments
+			if (that.CONSOLE.push([dt].concat(args)) > 10) that.CONSOLE.splice(0, 1);
+
+			// Debug console
+			console.log.apply(null, ["\033[32m"].concat(args));
+		}
+
 		that.Client = function(input) {
 			var Client = this;
 
@@ -203,11 +228,12 @@
 
 			// Return existing client object
 			if (that.getClient(input.id)) return extend(that.getClient(input.id), {io: input.io, online: true});
-
+			console.log(input.id, that.getScore(input.id));
 			// Or recover user infos from client last score
 			if (that.getScore(input.id)) 
 				input.nickname = that.getScore(input.id).nickname, 
-				input.best = that.getScore(input.id).score;
+				input.best = that.getScore(input.id).score,
+				input.admin = that.getScore(input.id).admin || null;
 
 			Client.io = input.io;
 			Client.id = input.id || rdstr(10);
@@ -219,6 +245,7 @@
 			Client.best = input.best || 0;
 			Client.rank = null;
 			Client.ip = input.ip || null;
+			Client.admin = input.admin || false;
 
 			Client._ = {
 				x: 100,
@@ -228,11 +255,11 @@
 				alive: true,
 			};
 
-			Client.getReward = function(score) {
+			Client.getReward = function(score, rank) {
 				var temp = null;
 				var hist = [];
 				for (var i = 0; i < 3; i++) {
-					if (!temp && !hist[Client.id] && (!that.REWARDS[i] || that.REWARDS[i].score <= score)) {
+					if (!temp && !hist[Client.id] && (rank == i || !that.REWARDS[i] || that.REWARDS[i].score <= score)) {
 						temp = that.REWARDS[i];
 						that.REWARDS[i] = {id: Client.id, score: score};
 					} else if (temp) {
@@ -278,6 +305,7 @@
 						// Si les coordonnées se situes dans un obstacle, le cheat est confirmé
 						if (!that.LEVEL[Client._.s].isDynamic && x > that.LEVEL[Client._.s].x && x < that.LEVEL[Client._.s].x + 52 && (y < that.LEVEL[Client._.s].y || y > that.LEVEL[Client._.s].y+that.LEVEL[Client._.s].d)) {
 							console.log(that.LEVEL[Client._.s]);
+							that.console(Client.nickname+': cheat detected','ID:'+Client._.s+', D:false, pipeX:'+that.LEVEL[Client._.s].x+', pipeY:'+that.LEVEL[Client._.s].y+', birdX:'+x+', birdY:'+y);
 							Client.gameOver();
 						}
 					}
@@ -323,11 +351,11 @@
 
 					that.DB.SCORES.count({score: {$gt:Client._.s}}, function(err, alltime) {
 						if (err) 
-							Client.io.emit('message', 'Database error');
+							that.console(Client.nickname+': upsert/mongo error');
 						else
 							that.DB.DAILY.count({score: {$gt:Client._.s}, timestamp: {$gt: new Date().setHours(0, 0, 0)}}, function(err, daily) {
 								if (err) 
-									Client.io.emit('message', 'Database error');
+								that.console(Client.nickname+': upsert/mongo error');
 								else {
 									Client.io.emit('rank', {id: Client.id, rank: {alltime: alltime + 1, daily: daily + 1}});
 								}
@@ -345,9 +373,11 @@
 
 					that.DB.DAILY.findOne({client: Client.id, timestamp: {$gt: new Date().setHours(0, 0, 0)}}).exec(function(err, player) {
 						if (err) 
-							Client.io.emit('message', 'Database error');
-						if (!player || Client._.s >= player.score)
+							that.console(Client.nickname+': upsert/mongo error');
+						if (!player || Client._.s >= player.score) {
+							that.console(Client.nickname+': new daily score ('+Client._.s+')');
 							that.DB.DAILY.update({ client: Client.id, timestamp: {$gt: new Date().setHours(0, 0, 0)}}, upsert, {upsert: true}, function(err, res) {});
+						}
 					});
 
 					if (that.getScore(Client.id).score >= Client._.s) return;
@@ -356,9 +386,11 @@
 					
 					that.DB.SCORES.update({ _id: Client.id}, upsert, {upsert: true}, function(err, res) {
 						if (err) 
-							Client.io.emit('message', 'Database error');
-						else
+							that.console(Client.nickname+': upsert/mongo error');
+						else {
+							that.console(Client.nickname+': new server score ('+Client._.s+')');
 							extend(that.getClient(Client.id), {nickname: Client.nickname, score: Client._.s});
+						}
 					});
 				}
 			}
@@ -383,7 +415,7 @@
 			}
 
 			Client.getGhost = function(id) {
-				that.DB.DAILY.findOne({_id: new ObjectId(id)}).exec(function(err, ghost) {
+				that.DB.DAILY.findOne({_id: id}).exec(function(err, ghost) {
 					Client.io.emit('ghost', ghost);
 				});
 			}
@@ -420,14 +452,18 @@
 						return Client.io.emit('message', {options: {class: 'warning'}, text: 'No more high scores'});
 
 					that.DB[collection].find(search, {jumps:0}).sort(sort).skip(25*page).limit(25).exec(function(err, scores) {
-						if (err) return Client.io.emit('message', {options: {class: 'warning'}, text: 'Database error'});
+						if (err) that.console(Client.nickname+': upsert/mongo error');
 						Client.io.emit('leaderboard', {scores: scores, count: count});
 					});
 				})
 			}
 
 			Client.log = function() {
-				Client.io.emit('log', {TIME: +new Date(), BIRDS: safe(that.BIRDS), REWARDS: that.REWARDS, LEVEL: that.LEVEL, COUNT: io.sockets.clients().length, SCORES: that.SCORES});
+				Client.io.emit('log', {TIME: +new Date(), DEBUGLEVEL: that.DEBUGLEVEL, BIRDS: safe(that.BIRDS), REWARDS: that.REWARDS, LEVEL: that.LEVEL, COUNT: io.sockets.clients().length, SCORES: that.SCORES});
+			}
+
+			Client.disconnect = function() {
+				Client.io.disconnect();
 			}
 
 			that.BIRDS.push(Client);
@@ -469,13 +505,18 @@
 
 				// IP
 				var ip = socket.handshake.remoteAdrr;
-				console.log('\x1b[35m'+ip+' CONNECT');
 
 				// Encryption de l'id, ainsi l'utilisateur
 				var uid = encrypt(socket.handshake.session).substr(0, 16);
 
 				// Récupération/Création du client
 				var Bird = new that.Client({id: uid, io: socket, guest: (socket.handshake.guest || false), ip: ip});
+
+				// Logging
+				that.console(ip+' ('+Bird.nickname+'#'+Bird.id+') join the game');
+
+				// Admin ou pas admin
+				if (Bird.admin && that.ADMINS.indexOf(Bird.id) == -1) that.ADMINS.push(Bird.id);
 
 				// Incrementation du counter
 				var count = io.sockets.clients().length;
@@ -491,7 +532,8 @@
 					guest: Bird.guest,
 					pages: Math.floor(that.SCORES.length / 25),
 					round: that.ROUND - +new Date(),
-					rewards: that.REWARDS
+					rewards: that.REWARDS,
+					console: Bird.admin ? that.CONSOLE : []
 				});
 
 				// Transmission des données aux autres clients
@@ -508,9 +550,6 @@
 						case 'gameover':
 							Bird.gameOver(data.dt);
 							break;
-						case 'log':
-							Bird.log();
-							break;
 						case 'ghost':
 							Bird.getGhost(data.dt);
 							break;
@@ -521,7 +560,37 @@
 							Bird.rename(data.dt);
 							break;
 						default:
-							console.log('unknown command');
+							that.console('Unknown command ('+data.fn+')');
+						}
+
+				// Commandes declenchés par l'administrateur
+				}).on('admin_command', function(data) {
+					if (!Bird.admin) return;
+
+					// Fonctions utilisateur
+					switch (data.fn) {
+						case 'refresh':
+							socket.emit('refresh', {rewards: that.REWARDS, online: safe(that.BIRDS)});
+							break;
+						case 'kick':
+							if (!data.dt || !data.dt.id || !(player = that.getClient(data.dt.id))) break;
+							that.console('/kick '+player.nickname);
+							if (player) player.disconnect();
+							break;
+						case 'endround':
+							that.console('/endround');
+							that.resetRound();
+							break;
+						case 'reward':
+							if (!data.dt || !data.dt.id || isNaN(data.dt.rank) || !(player = that.getClient(data.dt.id))) break;
+							that.console('/reward '+player.nickname+' '+data.dt.rank);
+							player.getReward(0, (data.dt.rank - 1));
+							break;
+						case 'debug':
+							Bird.log();
+							break;
+						default:
+							that.console('Unknown command ('+data.fn+')');
 						}
 
 				// Deconnexion du client
@@ -530,13 +599,17 @@
 
 					Bird.online = false;
 
+					if (that.ADMINS.indexOf(Bird.id) != -1) that.ADMINS.splice(that.ADMINS.indexOf(Bird.id), 1);
 					socket.broadcast.emit('lead', {id: Bird.id, count: io.sockets.clients().length - 1});
+
+					that.console(Bird.nickname+' disconnected from server');
 
 				}).on('lead', function () {
 					if (Bird.online == false) return;
 
 					Bird.online = false;
 
+					if (that.ADMINS.indexOf(Bird.id) != -1) that.ADMINS.splice(that.ADMINS.indexOf(Bird.id), 1);
 					socket.broadcast.emit('lead', {id: Bird.id, count: io.sockets.clients().length - 1});
 
 				});
@@ -544,7 +617,7 @@
 			});
 
 			server.listen(properties.port, function() {
-				console.log('Server v'+that.VERSION+' listening on port '+properties.port+' ('+properties.host+') in '+app.settings.env+' mode');
+				that.console('Server v'+that.VERSION+' listening on port '+properties.port+' ('+properties.host+') in '+app.settings.env+' mode');
 			});
 		}
 
@@ -553,11 +626,12 @@
 				out = [],
 				id = 0, d = 0, o = 0,
 				pseudorandom = function(offset) { var x = +Math.sin(offset ? seed + offset : seed++).toFixed(8) * 10000; return x - Math.floor(x); };
-
+				var debug = [];
 			for (var i=0; i<that.MAX_LEVEL+that.NPL; i++) {
 				var heightFactor = pseudorandom(),
 					heightFactorOffset = pseudorandom(10000);
 				if (i>=that.NPL) {
+					debug.push({hF: heightFactor, hFOff: heightFactorOffset, id: id, dynamic: heightFactorOffset < Math.max(Math.min(id * 0.015 / 2, 0.8), 0.1)})
 					id = i - that.NPL;
 					d = Math.max(Math.min(200 - ((200 * 0.01) * id), 300), 125);
 					o = +(heightFactor * (400 - d - 100) + 50).toFixed(2);
@@ -565,7 +639,7 @@
 					out.push({y: o, x:i * (150 + 52), d:d, isDynamic: heightFactorOffset < (0.1 + Math.min(id * 0.01 / 2, 0.80))}); 
 				}
 			}
-
+			that.DEBUGLEVEL = debug;
 			return out;
 		}
 	}
@@ -577,7 +651,7 @@
 	*/
 
 	function safe(data) {
-		var output = {};
+		var output = [];
 
 		function get(socket) {
 			var safe = {
@@ -595,7 +669,7 @@
 		else
 			for (var i = 0; i < data.length; i++) {
 				if (data[i].online)
-					output[i] = get(data[i]);
+					output.push(get(data[i]));
 			}
 
 		return output;
