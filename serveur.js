@@ -685,7 +685,7 @@
 
 
 	function encrypt(text) {
-		var cipher = crypto.createCipher('aes-256-cbc','d6F3Efeq')
+		var cipher = crypto.createCipher('aes-256-cbc', process.env.SALT)
 		var crypted = cipher.update(text,'utf8','hex')
 		crypted += cipher.final('hex');
 		return crypted;
