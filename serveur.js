@@ -6,8 +6,8 @@
 
 	// Server requirements
 
-	var io      = require('socket.io'),
-		http    = require('http'),
+	var io = require('socket.io'),
+		http = require('http'),
 		express = require('express'),
 		mongoose = require('mongoose'),
 		crypto = require('crypto'),
@@ -27,12 +27,13 @@
 
 			html_var: {
 				cover: {
-					name: 'Flap.IO Beta',
-					author: 'http://www.xzl.fr'
+					name: 'Flap.IO',
+					author: 'https://www.kevinrostagni.me'
 				}
 			},
 
 			mongouri: process.env.MONGOHQ_URL || config.MONGOURI || null,
+			salt: process.env.SALT || 'lel',
 			mongotry: 0
 		},
 
@@ -94,7 +95,7 @@
 	function Game() {
 		var that = this;
 
-		that.VERSION = "1.0";
+		that.VERSION = "1.1";
 
 		that.BIRDS = [];
 		that.SEED = parseInt(rdnb(1,1000000000));
@@ -228,7 +229,7 @@
 
 			// Return existing client object
 			if (that.getClient(input.id)) return extend(that.getClient(input.id), {io: input.io, online: true});
-			console.log(input.id, that.getScore(input.id));
+
 			// Or recover user infos from client last score
 			if (that.getScore(input.id)) 
 				input.nickname = that.getScore(input.id).nickname, 
@@ -255,22 +256,18 @@
 				alive: true,
 			};
 
-			Client.getReward = function(score, rank) {
-				var temp = null;
-				var hist = [];
-				for (var i = 0; i < 3; i++) {
-					if (!temp && !hist[Client.id] && (rank == i || !that.REWARDS[i] || that.REWARDS[i].score <= score)) {
-						temp = that.REWARDS[i];
-						that.REWARDS[i] = {id: Client.id, score: score};
-					} else if (temp) {
-						if (temp.id == Client.id) continue;
-						var temptemp = that.REWARDS[i];
-						that.REWARDS[i] = temp;
-						temp = temptemp;
-					} else {
-						that.REWARDS[i] && (hist[that.REWARDS[i].id] = true);
-					}
-				}
+			Client.getReward = function(score) {
+				var output = that.REWARDS.slice();
+
+				output.push(
+					{id: Client.id, score: score}
+				);
+				console.log('unsorted', output);
+				output = output.sort(function(b, a) { return (+a.score) - (+b.score); });
+				console.log('sorted x1', output);
+
+				that.REWARDS = output.splice(0, 3);
+				console.log('output', that.REWARDS);
 
 				return that.REWARDS;
 			}
@@ -415,7 +412,7 @@
 			}
 
 			Client.getGhost = function(id) {
-				that.DB.DAILY.findOne({_id: id}).exec(function(err, ghost) {
+				that.DB.SCORES.findOne({_id: id}).exec(function(err, ghost) {
 					Client.io.emit('ghost', ghost);
 				});
 			}
@@ -685,7 +682,7 @@
 
 
 	function encrypt(text) {
-		var cipher = crypto.createCipher('aes-256-cbc', process.env.SALT)
+		var cipher = crypto.createCipher('aes-256-cbc', properties.salt)
 		var crypted = cipher.update(text,'utf8','hex')
 		crypted += cipher.final('hex');
 		return crypted;
