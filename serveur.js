@@ -33,7 +33,37 @@
 			},
 
 			mongouri: process.env.MONGOHQ_URL || config.MONGOURI || null,
-			salt: process.env.SALT || 'lel',
+			salt: process.env.SALT || 'unsecure',
+
+			game: {
+				LEVEL: {
+					SPACE: process.env.LEVEL_SPACE || 150,
+					MIN_DIFFICULTY: process.env.LEVEL_MIN_DIFFICULTY || 175,
+					MAX_DIFFICULTY: process.env.LEVEL_MAX_DIFFICULTY || 128,
+					DIFFICULTY_FACTOR: process.env.LEVEL_DIFFICULTY_FACTOR || 0.01,
+
+					DYNAMIC_FACTOR: process.env.LEVEL_DYNAMIC_FACTOR || 0.015,
+					DYNAMIC_FACTOR_MIN: process.env.LEVEL_DYNAMIC_FACTOR_MIN || 0.2,
+					DYNAMIC_FACTOR_MAX: process.env.LEVEL_DYNAMIC_FACTOR_MAX || 0.8,
+					DYNAMIC_STRENGTH_FACTOR: process.env.LEVEL_DYNAMIC_STRENGTH_FACTOR || 0.01,
+					DYNAMIC_STRENGTH_FACTOR_MIN: process.env.LEVEL_DYNAMIC_STRENGTH_FACTOR_MIN || 0,
+					DYNAMIC_STRENGTH_FACTOR_MAX: process.env.LEVEL_DYNAMIC_STRENGTH_FACTOR_MAX || 2,
+					DYNAMIC_MARGIN_MIN: process.env.LEVEL_DYNAMIC_MARGIN_MIN || 25,
+					DYNAMIC_MARGIN_MAX: process.env.LEVEL_DYNAMIC_MARGIN_MAX || 75,
+
+					MARGIN: process.env.LEVEL_MARGIN || 2,
+					WIDTH: process.env.LEVEL_WIDTH || 52
+				},
+				PHYSICS: {
+					XVEL: process.env.PHYSICS_XVEL || 4,
+					YVEL: process.env.PHYSICS_YVEL || 0.42,
+					FLAP: process.env.PHYSICS_FLAP || -8,
+					GRND: process.env.PHYSICS_GRND || 400,
+					REST: process.env.PHYSICS_REST || -0.3,
+					FRIC: process.env.PHYSICS_FRIC || 0.95,
+				},
+			},
+
 			mongotry: 0
 		},
 
@@ -262,12 +292,10 @@
 				output.push(
 					{id: Client.id, score: score}
 				);
-				console.log('unsorted', output);
+
 				output = output.sort(function(b, a) { return (+a.score) - (+b.score); });
-				console.log('sorted x1', output);
 
 				that.REWARDS = output.splice(0, 3);
-				console.log('output', that.REWARDS);
 
 				return that.REWARDS;
 			}
@@ -281,6 +309,8 @@
 				else if (Client._.alive == false)
 					return;
 
+				var debug = [];
+
 				// Jump is too big
 				if (Math.abs(Client.jumps[Client.jumps.length -1] - jumps[0]) > 200) Client.gameOver();
 
@@ -291,17 +321,23 @@
 					if (!LAST_JUMP) return;
 
 					// Simulation du mouvement
-					for (var FRAME = 1; FRAME <= (JUMP - LAST_JUMP)/2; FRAME += 5) {
+					for (var FRAME = 1; FRAME <= (JUMP - LAST_JUMP)/properties.game.PHYSICS.XVEL; FRAME += 2) {
 
 						// Nouveau point Y en fonction de la velocité de départ (-8), la gravité (0.38) et la distance par rapport au point de référence
-						y = +(Client._.y + (-8 + ((0.38 * (FRAME + 1)) / 2)) * FRAME).toFixed(2);
+						y = +(Client._.y + (properties.game.PHYSICS.FLAP + ((properties.game.PHYSICS.YVEL * (FRAME + 1)) / 2)) * FRAME).toFixed(2);
 
 						// Nouveau point X (augmentation constante: 1f = +2x)
-						x = Client._.x + FRAME * 2;
+						x = Client._.x + FRAME * properties.game.PHYSICS.XVEL;
+
+						if (beta) {
+							if (!that.LEVEL[Client._.s].isDynamic && x + 2 > that.LEVEL[Client._.s].x && x < that.LEVEL[Client._.s].x + properties.game.LEVEL.WIDTH - 2)
+								debug.push({type: 'pipe', x: x, top: that.LEVEL[Client._.s].y, bottom: that.LEVEL[Client._.s].y+that.LEVEL[Client._.s].d});
+
+							debug.push({type: 'path', x: x, y: y});
+						}
 
 						// Si les coordonnées se situes dans un obstacle, le cheat est confirmé
-						if (!that.LEVEL[Client._.s].isDynamic && x > that.LEVEL[Client._.s].x && x < that.LEVEL[Client._.s].x + 52 && (y < that.LEVEL[Client._.s].y || y > that.LEVEL[Client._.s].y+that.LEVEL[Client._.s].d)) {
-							console.log(that.LEVEL[Client._.s]);
+						if (!that.LEVEL[Client._.s].isDynamic && x > that.LEVEL[Client._.s].x && x < that.LEVEL[Client._.s].x + properties.game.LEVEL.WIDTH && (y < that.LEVEL[Client._.s].y || y > that.LEVEL[Client._.s].y+that.LEVEL[Client._.s].d)) {
 							that.console(Client.nickname+': cheat detected','ID:'+Client._.s+', D:false, pipeX:'+that.LEVEL[Client._.s].x+', pipeY:'+that.LEVEL[Client._.s].y+', birdX:'+x+', birdY:'+y);
 							Client.gameOver();
 						}
@@ -309,13 +345,16 @@
 
 					// Somme après frames
 					Client._.x += (JUMP - LAST_JUMP);
-					Client._.y = +(Client._.y + ( - 8 + ((0.38 * ((JUMP - LAST_JUMP) / 2 + 1)) /2)) * ((JUMP - LAST_JUMP) / 2)).toFixed(2);
+					Client._.y = +(Client._.y + (properties.game.PHYSICS.FLAP + ((properties.game.PHYSICS.YVEL * ((JUMP - LAST_JUMP) / properties.game.PHYSICS.XVEL + 1)) /2)) * ((JUMP - LAST_JUMP) / properties.game.PHYSICS.XVEL)).toFixed(2);
 					Client._.j = JUMP;
 				
 					// Nouvelle target
 					if (Client._.x > that.LEVEL[Client._.s].x + 64) Client._.s++;
 
 				});
+
+				if (beta)
+					Client.io.emit('debug', debug);
 				
 				// Envois du jump au autres joueurs
 				Client.jumps = Client.jumps.concat(jumps);
@@ -520,6 +559,7 @@
 
 				// Callback auprès de l'auteur de connexion
 				socket.emit('init', {
+					game: properties.game,
 					bird: {id: Bird.id, nickname: Bird.nickname, best: Bird.best}, 
 					players: safe(that.BIRDS),
 					seed: that.SEED,
@@ -583,9 +623,6 @@
 							that.console('/reward '+player.nickname+' '+data.dt.rank);
 							player.getReward(0, (data.dt.rank - 1));
 							break;
-						case 'debug':
-							Bird.log();
-							break;
 						default:
 							that.console('Unknown command ('+data.fn+')');
 						}
@@ -628,12 +665,11 @@
 				var heightFactor = pseudorandom(),
 					heightFactorOffset = pseudorandom(10000);
 				if (i>=that.NPL) {
-					debug.push({hF: heightFactor, hFOff: heightFactorOffset, id: id, dynamic: heightFactorOffset < Math.max(Math.min(id * 0.015 / 2, 0.8), 0.1)})
 					id = i - that.NPL;
-					d = Math.max(Math.min(200 - ((200 * 0.01) * id), 300), 125);
-					o = +(heightFactor * (400 - d - 100) + 50).toFixed(2);
+					d = Math.max(Math.min(properties.game.LEVEL.MIN_DIFFICULTY - ((properties.game.LEVEL.MIN_DIFFICULTY * properties.game.LEVEL.DIFFICULTY_FACTOR) * id), 300), properties.game.LEVEL.MAX_DIFFICULTY);
+					o = +(heightFactor * (properties.game.PHYSICS.GRND - d - (properties.game.LEVEL.WIDTH * 2)) + properties.game.LEVEL.WIDTH).toFixed(2);
 
-					out.push({y: o, x:i * (150 + 52), d:d, isDynamic: heightFactorOffset < (0.1 + Math.min(id * 0.01 / 2, 0.80))}); 
+					out.push({y: o, x:i * (properties.game.LEVEL.SPACE + properties.game.LEVEL.WIDTH), d:d, isDynamic: heightFactorOffset < Math.max(Math.min(id * properties.game.LEVEL.DYNAMIC_FACTOR / 2, properties.game.LEVEL.DYNAMIC_FACTOR_MAX), properties.game.LEVEL.DYNAMIC_FACTOR_MIN)}); 
 				}
 			}
 			that.DEBUGLEVEL = debug;
