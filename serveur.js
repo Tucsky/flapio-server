@@ -17,7 +17,7 @@
 	// Local configs
 
 		var fs = require('fs'),
-			config = fs.statSync('config.json').isFile() ? JSON.parse(fs.readFileSync('config.json', 'UTF-8')) : {};
+			config = fs.existsSync('config.json') ? JSON.parse(fs.readFileSync('config.json', 'UTF-8')) : {};
 
 	// Define global server properties
 
