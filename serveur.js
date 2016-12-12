@@ -83,6 +83,7 @@
 
 		server = http.createServer(app);
 		io = io.listen(server);
+		io.set('log level', 1);
 
 	// Init mongo DB
 
@@ -249,7 +250,7 @@
 			if (that.CONSOLE.push([dt].concat(args)) > 10) that.CONSOLE.splice(0, 1);
 
 			// Debug console
-			console.log.apply(null, ["\033[32m"].concat(args));
+			console.log.apply(null, ["\033[32m"].concat(args).concat(["\033[39m"]));
 		}
 
 		that.Client = function(input) {
@@ -312,7 +313,10 @@
 				var debug = [];
 
 				// Jump is too big
-				if (Math.abs(Client.jumps[Client.jumps.length -1] - jumps[0]) > 200) Client.gameOver();
+				if (Math.abs(Client.jumps[Client.jumps.length -1] - jumps[0]) > 300) {
+					that.console(Client.nickname+': jump length',Math.abs(Client.jumps[Client.jumps.length -1] - jumps[0]), '> 300');
+					Client.gameOver();
+				}
 
 				jumps.forEach(function(JUMP, INDEX) {
 
@@ -340,6 +344,9 @@
 						if (!that.LEVEL[Client._.s].isDynamic && x > that.LEVEL[Client._.s].x && x < that.LEVEL[Client._.s].x + properties.game.LEVEL.WIDTH && (y < that.LEVEL[Client._.s].y || y > that.LEVEL[Client._.s].y+that.LEVEL[Client._.s].d)) {
 							that.console(Client.nickname+': cheat detected','ID:'+Client._.s+', D:false, pipeX:'+that.LEVEL[Client._.s].x+', pipeY:'+that.LEVEL[Client._.s].y+', birdX:'+x+', birdY:'+y);
 							Client.gameOver();
+						} else if (y > properties.game.PHYSICS.GRND) {
+							that.console(Client.nickname+': y > physics.ground',y);
+							Client.gameOver();
 						}
 					}
 
@@ -365,11 +372,15 @@
 				if (!Client._.alive) return;
 
 				if (data) {
+					that.console(Client.nickname+': client gameover');
+
 					// Derniers jumps
 					if (data.j && data.j.length) Client.jump(data.j);
 
 					// Score rounder (200 pixels)
 					if (Math.abs(data.s - Client._.x) < 200 && data.s > that.LEVEL[Client._.s].x+26) Client._.s++;
+				} else {
+					that.console(Client.nickname+': server gameover');
 				}
 
 				// Officiellement mort
